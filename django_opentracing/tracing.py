@@ -41,7 +41,7 @@ class DjangoTracing(object):
         scope = self._current_scopes.get(request, None)
         return None if scope is None else scope.span
 
-    def trace(self, *attributes, view=True):
+    def trace(self, view=True, *attributes):
         '''
         Function decorator that traces functions such as Views
         @param attributes any number of HttpRequest attributes
