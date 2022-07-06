@@ -125,26 +125,29 @@ class DjangoTracing(object):
         return scope
 
     def _finish_tracing(self, request, response=None, error=None):
-        if request not in self._current_scopes:
-            return
+        try:
+            if request not in self._current_scopes:
+                return
 
-        scope = self._current_scopes[request].pop()
-        # free scope dict once all items are consumed
-        if not self._current_scopes[request]:
-            del self._current_scopes[request]
-        if scope is None:
-            return
+            scope = self._current_scopes[request].pop()
+            # free scope dict once all items are consumed
+            if not self._current_scopes[request]:
+                del self._current_scopes[request]
+            if scope is None:
+                return
 
-        if error is not None:
-            scope.span.set_tag(tags.ERROR, True)
-            scope.span.log_kv({
-                'event': tags.ERROR,
-                'error.object': error,
-            })
-        if response is not None:
-            scope.span.set_tag(tags.HTTP_STATUS_CODE, response.status_code)
+            if error is not None:
+                scope.span.set_tag(tags.ERROR, True)
+                scope.span.log_kv({
+                    'event': tags.ERROR,
+                    'error.object': error,
+                })
+            if response is not None:
+                scope.span.set_tag(tags.HTTP_STATUS_CODE, response.status_code)
 
-        scope.close()
+            scope.close()
+        except Exception as exc:
+            print("Exception during finish tracing {}".format(str(exc)))
 
     def _call_start_span_cb(self, span, request):
         if self._start_span_cb is None:
