@@ -38,8 +38,10 @@ class DjangoTracing(object):
         @param request
         Returns the span tracing this request
         '''
-        scope = self._current_scopes.get(request, None)
-        return None if scope is None else scope.span
+        scopes = self._current_scopes.get(request, None)
+        if scopes:
+            return scopes[0].span
+        return None
 
     def trace(self, view=True, *attributes):
         '''
@@ -123,6 +125,9 @@ class DjangoTracing(object):
         return scope
 
     def _finish_tracing(self, request, response=None, error=None):
+        if request not in self._current_scopes:
+            return
+
         scope = self._current_scopes[request].pop()
         # free scope dict once all items are consumed
         if not self._current_scopes[request]:
