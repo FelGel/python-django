@@ -1,3 +1,4 @@
+import logging
 import opentracing
 from opentracing.ext import tags
 from opentracing.propagation import Format
@@ -81,48 +82,52 @@ class DjangoTracing(object):
         Returns a new span from the request with logged attributes and
         correct operation name from the view_func.
         '''
-        # strip headers for trace info
-        headers = {}
-        for k, v in six.iteritems(request.META):
-            k = k.lower().replace('_', '-')
-            if k.startswith('http-'):
-                k = k[5:]
-            headers[k] = v
 
-        # start new span from trace info
-        operation_name = view_func.__name__
         try:
-            span_ctx = self.tracer.extract(opentracing.Format.HTTP_HEADERS,
-                                           headers)
-            scope = self.tracer.start_active_span(operation_name,
-                                                  child_of=span_ctx)
-        except (opentracing.InvalidCarrierException,
-                opentracing.SpanContextCorruptedException):
-            scope = self.tracer.start_active_span(operation_name)
-            # Inject the scope back to the carrier for nested calls to recover it
-            self.tracer.inject(scope, Format.HTTP_HEADERS, headers)
+            # strip headers for trace info
+            headers = {}
+            for k, v in six.iteritems(request.META):
+                k = k.lower().replace('_', '-')
+                if k.startswith('http-'):
+                    k = k[5:]
+                headers[k] = v
 
-        # Add span to current spans
-        # use list per request, one item per nested call
-        self._current_scopes.setdefault(request, []).append(scope)
+            # start new span from trace info
+            operation_name = view_func.__name__
+            try:
+                span_ctx = self.tracer.extract(opentracing.Format.HTTP_HEADERS,
+                                               headers)
+                scope = self.tracer.start_active_span(operation_name,
+                                                      child_of=span_ctx)
+            except (opentracing.InvalidCarrierException,
+                    opentracing.SpanContextCorruptedException):
+                scope = self.tracer.start_active_span(operation_name)
+                # Inject the scope back to the carrier for nested calls to recover it
+                self.tracer.inject(scope, Format.HTTP_HEADERS, headers)
 
-        # standard tags
-        scope.span.set_tag(tags.COMPONENT, 'django')
-        scope.span.set_tag(tags.SPAN_KIND, tags.SPAN_KIND_RPC_SERVER)
-        scope.span.set_tag(tags.HTTP_METHOD, request.method)
-        scope.span.set_tag(tags.HTTP_URL, request.get_full_path())
+            # Add span to current spans
+            # use list per request, one item per nested call
+            self._current_scopes.setdefault(request, []).append(scope)
 
-        # log any traced attributes
-        for attr in attributes:
-            if hasattr(request, attr):
-                payload = str(getattr(request, attr))
-                if payload:
-                    scope.span.set_tag(attr, payload)
+            # standard tags
+            scope.span.set_tag(tags.COMPONENT, 'django')
+            scope.span.set_tag(tags.SPAN_KIND, tags.SPAN_KIND_RPC_SERVER)
+            scope.span.set_tag(tags.HTTP_METHOD, request.method)
+            scope.span.set_tag(tags.HTTP_URL, request.get_full_path())
 
-        # invoke the start span callback, if any
-        self._call_start_span_cb(scope.span, request)
+            # log any traced attributes
+            for attr in attributes:
+                if hasattr(request, attr):
+                    payload = str(getattr(request, attr))
+                    if payload:
+                        scope.span.set_tag(attr, payload)
 
-        return scope
+            # invoke the start span callback, if any
+            self._call_start_span_cb(scope.span, request)
+            return scope
+
+        except Exception as exc:
+            logging.error("Exception during apply tracing: {}".format(str(exc)))
 
     def _finish_tracing(self, request, response=None, error=None):
         try:
@@ -147,7 +152,7 @@ class DjangoTracing(object):
 
             scope.close()
         except Exception as exc:
-            print("Exception during finish tracing {}".format(str(exc)))
+            logging.error("Exception during finish tracing: {}".format(str(exc)))
 
     def _call_start_span_cb(self, span, request):
         if self._start_span_cb is None:
